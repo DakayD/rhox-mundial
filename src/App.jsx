@@ -367,6 +367,39 @@ export default function RhoxPorra() {
 
   const colorJ = (j) => COLORES[JUGADORES.indexOf(j)] || "#888";
 
+  // ── RECONSTRUIR HISTORIAL desde resultados guardados ────────────────────
+  const reconstruirHistorial = async () => {
+    if (!asignacion) return;
+    const nuevoHistorial = {};
+    // Ordenar partidos por fecha y hora
+    const partidosConRes = PARTIDOS_GRUPOS.filter(p => {
+      const res = resultadosGrupos[p.id];
+      return res && res.g1 !== "" && res.g2 !== "" && res.g1 !== undefined && res.g2 !== undefined && !isNaN(parseInt(res.g1)) && !isNaN(parseInt(res.g2));
+    }).sort((a, b) => {
+      const fa = `${a.fecha} ${a.hora}`;
+      const fb = `${b.fecha} ${b.hora}`;
+      return fa.localeCompare(fb);
+    });
+    // Reconstruir acumulando puntos partido a partido
+    let rGruposAcum = {};
+    for (const p of partidosConRes) {
+      rGruposAcum = { ...rGruposAcum, [p.id]: resultadosGrupos[p.id] };
+      const pts = calcularPuntos(rGruposAcum, resultadosElim, clasificados, asignacion);
+      nuevoHistorial[p.id] = { label: `${p.eq1} vs ${p.eq2}`, fechaOrden: `${p.fecha} ${p.hora}`, ...pts };
+    }
+    // Añadir eliminatorias confirmadas
+    const elimOrden = { r16:"28 Jun", r8:"01 Jul", r4:"04 Jul", r2:"08 Jul", r3:"11 Jul", r1:"18 Jul" };
+    for (const [key, res] of Object.entries(resultadosElim)) {
+      if (!res.ganador) continue;
+      const ronda = RONDAS_ELIM.find(r => key.startsWith(r.id));
+      const rondaId = key.split("-")[0];
+      const pts = calcularPuntos(resultadosGrupos, resultadosElim, clasificados, asignacion);
+      nuevoHistorial[key] = { label: ronda ? ronda.label : key, fechaOrden: `${elimOrden[rondaId]||"30 Jun"} ${key}`, ...pts };
+    }
+    setHistorialPuntos(nuevoHistorial);
+    await save("rhox-historial", nuevoHistorial);
+  };
+
   // ── EQUIPOS VIVOS ───────────────────────────────────────────────────────
   const getVivos = (j) => {
     if (!asignacion || !asignacion[j]) return null;
@@ -711,6 +744,13 @@ export default function RhoxPorra() {
                 <div style={{fontSize:13}}>El Mundial empieza el 11 de junio</div>
               </div>
             )}
+
+            {/* BOTÓN RECONSTRUIR */}
+            <button onClick={reconstruirHistorial} style={{
+              width:"100%", marginTop:16, padding:"10px",
+              background:"rgba(255,215,0,0.08)", border:"1px solid rgba(255,215,0,0.2)",
+              borderRadius:10, color:"#FFD700", fontSize:12, cursor:"pointer"
+            }}>🔄 Reconstruir gráfico</button>
 
             {/* GRÁFICO EVOLUCIÓN */}
             {datosGrafico.length > 1 && (
