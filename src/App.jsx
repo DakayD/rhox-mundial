@@ -231,7 +231,7 @@ export default function RhoxPorra() {
   const [resultadosGrupos, setResultadosGrupos] = useState({});
   const [resultadosElim, setResultadosElim] = useState({});
   const [clasificados, setClasificados] = useState({});
-  const [historialPuntos, setHistorialPuntos] = useState([]); // [{ronda, puntos:{j:pts}}]
+  const [historialPuntos, setHistorialPuntos] = useState({}); // {id: {label, fechaOrden, jugador:pts}}
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tabGrupo, setTabGrupo] = useState("A");
@@ -319,14 +319,17 @@ export default function RhoxPorra() {
   // ── HISTORIAL para gráfico ───────────────────────────────────────────────
   // Genera datos del gráfico a partir del historialPuntos guardado
   // Cada entrada: { label: "Grupo Jornada 1", Gorka: 3, Zigor: 0, ... }
-  const datosGrafico = historialPuntos.length > 0
-    ? historialPuntos
+  const datosGrafico = Object.keys(historialPuntos).length > 0
+    ? Object.values(historialPuntos).sort((a, b) => {
+        const fa = a.fechaOrden || "";
+        const fb = b.fechaOrden || "";
+        return fa.localeCompare(fb);
+      })
     : [{ label: "Inicio", ...Object.fromEntries(JUGADORES.map(j=>[j,0])) }];
 
   // Añadir snapshot al historial cuando se guarda un resultado
-  const addSnapshot = async (label, ptsActuales) => {
-    const snap = { label, ...ptsActuales };
-    const nuevo = [...historialPuntos, snap];
+  const addSnapshot = async (label, ptsActuales, snapshotId, fechaOrden) => {
+    const nuevo = { ...historialPuntos, [snapshotId]: { label, fechaOrden: fechaOrden || "99 Jun 99:99", ...ptsActuales } };
     setHistorialPuntos(nuevo);
     await save("rhox-historial", nuevo);
   };
@@ -342,7 +345,7 @@ export default function RhoxPorra() {
       const p = PARTIDOS_GRUPOS.find(x=>x.id===id);
       if(p){
         const pts = calcularPuntos(nuevo, resultadosElim, clasificados, asignacion);
-        await addSnapshot(`${p.eq1} vs ${p.eq2}`, pts);
+        await addSnapshot(`${p.eq1} vs ${p.eq2}`, pts, p.id, `${p.fecha} ${p.hora}`);
       }
     }
   };
@@ -356,7 +359,9 @@ export default function RhoxPorra() {
     if(asignacion){
       const pts = calcularPuntos(resultadosGrupos, nuevo, clasificados, asignacion);
       const ronda = RONDAS_ELIM.find(r=>key.startsWith(r.id));
-      await addSnapshot(ronda ? ronda.label : key, pts);
+      const ordenElim = { r16:"28 Jun", r8:"01 Jul", r4:"04 Jul", r2:"08 Jul", r3:"11 Jul", r1:"18 Jul" };
+      const rondaId = key.split("-")[0];
+      await addSnapshot(ronda ? ronda.label : key, pts, key, `${ordenElim[rondaId]||"30 Jun"} ${key}`);
     }
   };
 
@@ -575,7 +580,7 @@ export default function RhoxPorra() {
                           await save("rhox-clasif",nuevo);
                           if(asignacion){
                             const pts=calcularPuntos(resultadosGrupos,resultadosElim,nuevo,asignacion);
-                            await addSnapshot(`Clasif. ${eq}`,pts);
+                            await addSnapshot(`Clasif. ${eq}`, pts, `clasif-${eq}`, `27 Jun clasif-${eq}`);
                           }
                         }} style={{padding:"4px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:"bold",background:marcado?"rgba(76,175,80,0.3)":"rgba(255,255,255,0.08)",color:marcado?"#4CAF50":"#888"}}>
                           {marcado?"✓ Clasifica":"Clasifica?"}
@@ -724,14 +729,14 @@ export default function RhoxPorra() {
                     />
                     <Legend wrapperStyle={{fontSize:11,paddingTop:8}}/>
                     {JUGADORES.map(j=>(
-                      <Line key={j} type="monotone" dataKey={j} stroke={colorJ(j)} strokeWidth={2} dot={{r:3,fill:colorJ(j)}} activeDot={{r:5}}/>
+                      <Line key={j} type="monotone" dataKey={j} stroke={colorJ(j)} strokeWidth={2} dot={false} activeDot={{r:4}}/>
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
 
-            {datosGrafico.length <= 1 && (
+            {Object.keys(historialPuntos).length === 0 && (
               <div style={{marginTop:24,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:20,textAlign:"center"}}>
                 <div style={{fontSize:24,marginBottom:8}}>📈</div>
                 <div style={{fontSize:12,color:"#555"}}>El gráfico de evolución aparecerá aquí cuando se anoten los primeros resultados</div>
