@@ -150,10 +150,10 @@ const PARTIDOS_GRUPOS = [
 ];
 
 const RONDAS_ELIM = [
-  { id:"r16", label:"16avos de final",   pts:5,  partidos:32 },
-  { id:"r8",  label:"Octavos de final",  pts:8,  partidos:16 },
-  { id:"r4",  label:"Cuartos de final",  pts:13, partidos:8  },
-  { id:"r2",  label:"Semifinales",       pts:21, partidos:4  },
+  { id:"r16", label:"16avos de final",   pts:5,  partidos:16 },
+  { id:"r8",  label:"Octavos de final",  pts:8,  partidos:8  },
+  { id:"r4",  label:"Cuartos de final",  pts:13, partidos:4  },
+  { id:"r2",  label:"Semifinales",       pts:21, partidos:2  },
   { id:"r3",  label:"3er y 4to puesto",  pts:15, partidos:1  },
   { id:"r1",  label:"Final",             pts:34, partidos:1  },
 ];
@@ -320,11 +320,25 @@ export default function RhoxPorra() {
   // Genera datos del gráfico a partir del historialPuntos guardado
   // Cada entrada: { label: "Grupo Jornada 1", Gorka: 3, Zigor: 0, ... }
   const datosGrafico = Object.keys(historialPuntos).length > 0
-    ? Object.values(historialPuntos).sort((a, b) => {
-        const fa = a.fechaOrden || "";
-        const fb = b.fechaOrden || "";
-        return fa.localeCompare(fb);
-      })
+    ? (() => {
+        const grupos = Object.entries(historialPuntos)
+          .filter(([k]) => k.startsWith("g"))
+          .map(([, v]) => v)
+          .sort((a, b) => (a.fechaOrden || "").localeCompare(b.fechaOrden || ""));
+        const ORDEN_RONDAS = ["r16", "r8", "r4", "r2", "r3", "r1"];
+        const elim = Object.entries(historialPuntos)
+          .filter(([k]) => !k.startsWith("g") && !k.startsWith("clasif"))
+          .sort(([ka], [kb]) => {
+            const ra = ORDEN_RONDAS.findIndex(r => ka.startsWith(r));
+            const rb = ORDEN_RONDAS.findIndex(r => kb.startsWith(r));
+            if (ra !== rb) return ra - rb;
+            const na = parseInt(ka.split("-")[1] || "0");
+            const nb = parseInt(kb.split("-")[1] || "0");
+            return na - nb;
+          })
+          .map(([, v]) => v);
+        return [...grupos, ...elim];
+      })()
     : [{ label: "Inicio", ...Object.fromEntries(JUGADORES.map(j=>[j,0])) }];
 
   // Añadir snapshot al historial cuando se guarda un resultado
@@ -371,46 +385,83 @@ export default function RhoxPorra() {
   const reconstruirHistorial = async () => {
     if (!asignacion) return;
     const nuevoHistorial = {};
-    // Ordenar partidos por fecha y hora
+    // Fase de grupos: ordenar por fecha y reconstruir acumulando
     const partidosConRes = PARTIDOS_GRUPOS.filter(p => {
       const res = resultadosGrupos[p.id];
-      return res && res.g1 !== "" && res.g2 !== "" && res.g1 !== undefined && res.g2 !== undefined && !isNaN(parseInt(res.g1)) && !isNaN(parseInt(res.g2));
-    }).sort((a, b) => {
-      const fa = `${a.fecha} ${a.hora}`;
-      const fb = `${b.fecha} ${b.hora}`;
-      return fa.localeCompare(fb);
-    });
-    // Reconstruir acumulando puntos partido a partido
+      return res && res.g1 !== "" && res.g2 !== "" &&
+             res.g1 !== undefined && res.g2 !== undefined &&
+             !isNaN(parseInt(res.g1)) && !isNaN(parseInt(res.g2));
+    }).sort((a, b) => `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`));
     let rGruposAcum = {};
     for (const p of partidosConRes) {
       rGruposAcum = { ...rGruposAcum, [p.id]: resultadosGrupos[p.id] };
-      const pts = calcularPuntos(rGruposAcum, resultadosElim, clasificados, asignacion);
+      const pts = calcularPuntos(rGruposAcum, {}, clasificados, asignacion);
       nuevoHistorial[p.id] = { label: `${p.eq1} vs ${p.eq2}`, fechaOrden: `${p.fecha} ${p.hora}`, ...pts };
     }
-    // Añadir eliminatorias confirmadas
-    const elimOrden = { r16:"28 Jun", r8:"01 Jul", r4:"04 Jul", r2:"08 Jul", r3:"11 Jul", r1:"18 Jul" };
-    for (const [key, res] of Object.entries(resultadosElim)) {
-      if (!res.ganador) continue;
+    // Clasificados de grupos
+    for (const [eq, val] of Object.entries(clasificados)) {
+      if (val === true) {
+        const pts = calcularPuntos(resultadosGrupos, {}, clasificados, asignacion);
+        nuevoHistorial[`clasif-${eq}`] = { label: `Clasif. ${eq}`, fechaOrden: `27 Jun clasif-${eq}`, ...pts };
+      }
+    }
+    // Eliminatorias: en orden de ronda y número de partido
+    const ORDEN_RONDAS = ["r16", "r8", "r4", "r2", "r3", "r1"];
+    const elimOrdenados = Object.entries(resultadosElim)
+      .filter(([, res]) => res.ganador)
+      .sort(([ka], [kb]) => {
+        const ra = ORDEN_RONDAS.findIndex(r => ka.startsWith(r));
+        const rb = ORDEN_RONDAS.findIndex(r => kb.startsWith(r));
+        if (ra !== rb) return ra - rb;
+        return parseInt(ka.split("-")[1]||"0") - parseInt(kb.split("-")[1]||"0");
+      });
+    for (const [key, res] of elimOrdenados) {
       const ronda = RONDAS_ELIM.find(r => key.startsWith(r.id));
-      const rondaId = key.split("-")[0];
       const pts = calcularPuntos(resultadosGrupos, resultadosElim, clasificados, asignacion);
-      nuevoHistorial[key] = { label: ronda ? ronda.label : key, fechaOrden: `${elimOrden[rondaId]||"30 Jun"} ${key}`, ...pts };
+      nuevoHistorial[key] = { label: `${res.eq1} vs ${res.eq2}`, fechaOrden: key, ...pts };
     }
     setHistorialPuntos(nuevoHistorial);
     await save("rhox-historial", nuevoHistorial);
   };
 
   // ── EQUIPOS VIVOS ───────────────────────────────────────────────────────
-  const getVivos = (j) => {
-    if (!asignacion || !asignacion[j]) return null;
+  // Equipos vivos: todos los clasificados marcados + los que aún no han jugado grupo
+  // Si hay al menos 1 clasificado en un grupo → los no marcados están eliminados
+  const getEliminados = () => {
     const eliminados = new Set();
+    // Eliminados en rondas eliminatorias (perdedores)
     for (const res of Object.values(resultadosElim)) {
       if (res.eq1 && res.eq2 && res.ganador) {
-        eliminados.add(res.ganador===res.eq1 ? res.eq2 : res.eq1);
+        eliminados.add(res.ganador === res.eq1 ? res.eq2 : res.eq1);
       }
     }
-    // No clasificados de grupos
-    // Un equipo está eliminado de grupos si su grupo terminó y no está en clasificados
+    // Eliminados en fase de grupos: equipos cuyo grupo tiene clasificados marcados pero ellos no están
+    const gruposConClasificados = {};
+    for (const eq of Object.keys(clasificados)) {
+      if (clasificados[eq] === true) {
+        // Find which group this team belongs to
+        const partido = PARTIDOS_GRUPOS.find(p => p.eq1 === eq || p.eq2 === eq);
+        if (partido) {
+          if (!gruposConClasificados[partido.grupo]) gruposConClasificados[partido.grupo] = [];
+          gruposConClasificados[partido.grupo].push(eq);
+        }
+      }
+    }
+    // Any team in a group that has classified teams but is not classified → eliminated
+    for (const [grupo, clasifs] of Object.entries(gruposConClasificados)) {
+      const equiposGrupo = [...new Set(
+        PARTIDOS_GRUPOS.filter(p => p.grupo === grupo).flatMap(p => [p.eq1, p.eq2])
+      )];
+      for (const eq of equiposGrupo) {
+        if (!clasifs.includes(eq)) eliminados.add(eq);
+      }
+    }
+    return eliminados;
+  };
+
+  const getVivos = (j) => {
+    if (!asignacion || !asignacion[j]) return null;
+    const eliminados = getEliminados();
     const equipos = asignacion[j];
     const total = equipos.length;
     const vivos = equipos.filter(e => e && !eliminados.has(e.n)).length;
@@ -643,7 +694,11 @@ export default function RhoxPorra() {
                   const d=sorteoHecho&&ganador?duenoEquipo(ganador,asignacion):null;
                   const confirmado=!!guardado?.ganador;
                   const setLocal=(campo,val)=>setElimLocal(prev=>({...prev,[key]:{...(prev[key]||{}),[campo]:val}}));
-                  const opcionesEq=EQUIPOS_RAW.map(e=>e.n);
+                  const eliminadosElim = getEliminados();
+                  const opcionesEq = EQUIPOS_RAW
+                    .map(e => e.n)
+                    .filter(n => !eliminadosElim.has(n))
+                    .sort((a, b) => a.localeCompare(b, 'es'));
                   return (
                     <div key={key} style={{background:confirmado?"rgba(76,175,80,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${confirmado?"rgba(76,175,80,0.3)":"rgba(255,255,255,0.07)"}`,borderRadius:10,marginBottom:10,padding:"12px"}}>
                       <div style={{fontSize:10,color:"#666",marginBottom:8}}>Partido {i+1}</div>
