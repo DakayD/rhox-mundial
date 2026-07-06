@@ -405,7 +405,7 @@ export default function RhoxPorra() {
         nuevoHistorial[`clasif-${eq}`] = { label: `Clasif. ${eq}`, fechaOrden: `27 Jun clasif-${eq}`, ...pts };
       }
     }
-    // Eliminatorias: en orden de ronda y número de partido
+    // Eliminatorias: acumular de uno en uno en orden de ronda
     const ORDEN_RONDAS = ["r16", "r8", "r4", "r2", "r3", "r1"];
     const elimOrdenados = Object.entries(resultadosElim)
       .filter(([, res]) => res.ganador)
@@ -415,9 +415,10 @@ export default function RhoxPorra() {
         if (ra !== rb) return ra - rb;
         return parseInt(ka.split("-")[1]||"0") - parseInt(kb.split("-")[1]||"0");
       });
+    let rElimAcum = {};
     for (const [key, res] of elimOrdenados) {
-      const ronda = RONDAS_ELIM.find(r => key.startsWith(r.id));
-      const pts = calcularPuntos(resultadosGrupos, resultadosElim, clasificados, asignacion);
+      rElimAcum = { ...rElimAcum, [key]: res };
+      const pts = calcularPuntos(resultadosGrupos, rElimAcum, clasificados, asignacion);
       nuevoHistorial[key] = { label: `${res.eq1} vs ${res.eq2}`, fechaOrden: key, ...pts };
     }
     setHistorialPuntos(nuevoHistorial);
@@ -576,11 +577,20 @@ export default function RhoxPorra() {
                               {tier===1?"★ Top":tier===2?"◆ Medio":"◇ Bajo"}
                             </div>
                             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                              {eq.map(e=>(
-                                <span key={e.n} style={{background:"rgba(255,255,255,0.06)",borderRadius:6,padding:"3px 8px",fontSize:12,border:"1px solid rgba(255,255,255,0.08)"}}>
-                                  {e.f} {e.n}
-                                </span>
-                              ))}
+                              {eq.map(e=>{
+                                const elim = getEliminados().has(e.n);
+                                return (
+                                  <span key={e.n} style={{
+                                    background: elim ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.06)",
+                                    borderRadius:6, padding:"3px 8px", fontSize:12,
+                                    border: elim ? "1px solid rgba(255,255,255,0.04)" : "1px solid rgba(255,255,255,0.08)",
+                                    color: elim ? "#444" : "inherit",
+                                    textDecoration: elim ? "line-through" : "none",
+                                  }}>
+                                    {e.f} {e.n}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -703,23 +713,39 @@ export default function RhoxPorra() {
                     <div key={key} style={{background:confirmado?"rgba(76,175,80,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${confirmado?"rgba(76,175,80,0.3)":"rgba(255,255,255,0.07)"}`,borderRadius:10,marginBottom:10,padding:"12px"}}>
                       <div style={{fontSize:10,color:"#666",marginBottom:8}}>Partido {i+1}</div>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                        <select value={eq1} onChange={e=>setLocal("eq1",e.target.value)} disabled={confirmado}
-                          style={{flex:1,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,color:"#fff",padding:"6px 4px",fontSize:12}}>
-                          <option value="">-- Equipo --</option>
-                          {opcionesEq.map(n=><option key={n} value={n} style={{background:"#1a1a2e"}}>{n}</option>)}
-                        </select>
-                        <div style={{display:"flex",gap:4}}>
-                          <input value={g1} onChange={e=>setLocal("g1",e.target.value)} type="number" min="0" disabled={confirmado}
-                            style={{width:34,height:34,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:6,color:"#fff",fontSize:15,fontWeight:"bold"}}/>
-                          <span style={{color:"#555",alignSelf:"center"}}>:</span>
-                          <input value={g2} onChange={e=>setLocal("g2",e.target.value)} type="number" min="0" disabled={confirmado}
-                            style={{width:34,height:34,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:6,color:"#fff",fontSize:15,fontWeight:"bold"}}/>
-                        </div>
-                        <select value={eq2} onChange={e=>setLocal("eq2",e.target.value)} disabled={confirmado}
-                          style={{flex:1,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,color:"#fff",padding:"6px 4px",fontSize:12}}>
-                          <option value="">-- Equipo --</option>
-                          {opcionesEq.map(n=><option key={n} value={n} style={{background:"#1a1a2e"}}>{n}</option>)}
-                        </select>
+                        {confirmado ? (
+                          // Confirmado: mostrar equipos como texto fijo
+                          <div style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
+                            <div style={{flex:1,textAlign:"right",fontSize:13}}>{EQUIPOS_RAW.find(e=>e.n===eq1)?.f} {eq1}</div>
+                            <div style={{display:"flex",gap:4}}>
+                              <div style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,255,255,0.08)",borderRadius:6,fontSize:15,fontWeight:"bold",color:"#fff"}}>{g1}</div>
+                              <span style={{color:"#555",alignSelf:"center"}}>:</span>
+                              <div style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,255,255,0.08)",borderRadius:6,fontSize:15,fontWeight:"bold",color:"#fff"}}>{g2}</div>
+                            </div>
+                            <div style={{flex:1,fontSize:13}}>{EQUIPOS_RAW.find(e=>e.n===eq2)?.f} {eq2}</div>
+                          </div>
+                        ) : (
+                          // No confirmado: selectores normales
+                          <>
+                            <select value={eq1} onChange={e=>setLocal("eq1",e.target.value)}
+                              style={{flex:1,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,color:"#fff",padding:"6px 4px",fontSize:12}}>
+                              <option value="">-- Equipo --</option>
+                              {opcionesEq.map(n=><option key={n} value={n} style={{background:"#1a1a2e"}}>{n}</option>)}
+                            </select>
+                            <div style={{display:"flex",gap:4}}>
+                              <input value={g1} onChange={e=>setLocal("g1",e.target.value)} type="number" min="0"
+                                style={{width:34,height:34,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:6,color:"#fff",fontSize:15,fontWeight:"bold"}}/>
+                              <span style={{color:"#555",alignSelf:"center"}}>:</span>
+                              <input value={g2} onChange={e=>setLocal("g2",e.target.value)} type="number" min="0"
+                                style={{width:34,height:34,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:6,color:"#fff",fontSize:15,fontWeight:"bold"}}/>
+                            </div>
+                            <select value={eq2} onChange={e=>setLocal("eq2",e.target.value)}
+                              style={{flex:1,background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,color:"#fff",padding:"6px 4px",fontSize:12}}>
+                              <option value="">-- Equipo --</option>
+                              {opcionesEq.map(n=><option key={n} value={n} style={{background:"#1a1a2e"}}>{n}</option>)}
+                            </select>
+                          </>
+                        )}
                       </div>
                       {esEmpate&&!confirmado&&eq1&&eq2&&(
                         <div style={{background:"rgba(255,165,0,0.1)",border:"1px solid rgba(255,165,0,0.3)",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
